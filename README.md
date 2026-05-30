@@ -9,14 +9,33 @@
 1. [Repository Overview](#repository-overview)
 2. [Project Architecture](#project-architecture)
 3. [SENTRAL — Complete Stock Analysis](#sentral--complete-stock-analysis)
-4. [SCREENER — Fundamental + Technical Deep Dive](#screener--fundamental--technical-deep-dive)
-5. [Streamlit Apps](#streamlit-apps)
-6. [LLM-Powered Peer Discovery](#llm-powered-peer-discovery)
-7. [Reddit Scraping — OAuth vs Anonymous](#reddit-scraping--oauth-vs-anonymous)
-8. [API Keys Reference](#api-keys-reference)
-9. [Quick Start](#quick-start)
-10. [Output Files](#output-files)
-11. [Technology Stack](#technology-stack)
+   - [Architecture Overview](#architecture-overview)
+   - [Notebook Guide (82 cells)](#sentral_completeipynb--notebook-guide-82-cells)
+   - [Pillar 1 — Fundamentals](#pillar-1--fundamental-analysis)
+   - [Pillar 2 — Technical Analysis (35 indicators)](#pillar-2--technical-analysis-35-indicators)
+   - [Pillar 3 — News Aggregation (13 sources)](#pillar-3--news-aggregation-13-sources)
+   - [Pillar 4 — Sentiment Analysis (10 models)](#pillar-4--sentiment-analysis-10-models)
+   - [Pillar 5 — ML Price Forecasting](#pillar-5--ml-price-forecasting)
+   - [Pillar 6 — Signal Engine](#pillar-6--signal-engine)
+   - [Pillar 7 — 20-Strategy Backtesting](#pillar-7--20-strategy-backtesting)
+   - [Pillar 8 — AI Investment Thesis](#pillar-8--ai-investment-thesis)
+4. [SENTRAL App — Tab Guide](#sentral-app--tab-by-tab-guide)
+5. [Module Reference (sentral_app)](#module-reference--sentral_app)
+6. [SCREENER — screener.in × groww.in Replica](#screener--fundamental--technical-deep-dive)
+   - [18-Section Notebook Guide](#18-section-notebook-guide)
+   - [SCREENER App — 11-Tab Guide](#screener-app--11-tab-guide)
+7. [Streamlit Apps — Quick Launch](#streamlit-apps)
+8. [LLM-Powered Peer Discovery](#llm-powered-peer-discovery)
+9. [Reddit Scraping — OAuth vs Anonymous](#reddit-scraping--oauth-vs-anonymous)
+10. [API Keys Reference](#api-keys-reference)
+11. [Output Files](#output-files)
+12. [Quick Start](#quick-start)
+13. [Technology Stack](#technology-stack)
+
+> **Deep-dive documentation:**  
+> - Full SENTRAL pipeline → [SENTRAL.md](SENTRAL.md)  
+> - Full SCREENER pipeline → [SCREENER.md](SCREENER.md)  
+> - Setup & troubleshooting → [SETUP.md](SETUP.md)
 
 ---
 
@@ -30,7 +49,9 @@
 | `screener_app/` | Streamlit app for SCREENER (11 tabs, multi-stock screener) |
 | `outputs/` | Per-run output folder (models, CSVs, JSON reports) |
 | `requirements.txt` | Unified Python dependencies |
-| `SETUP.md` | Step-by-step setup guide |
+| `SENTRAL.md` | **Deep-dive docs for the SENTRAL pipeline** — notebook guide, module API, signal engine, backtest strategies, Reddit OAuth, outputs reference |
+| `SCREENER.md` | **Deep-dive docs for the SCREENER** — all 18 notebook sections, 11-tab app guide, valuation model formulas, LLM peer discovery detail |
+| `SETUP.md` | Step-by-step setup guide, venv, `.env`, troubleshooting |
 
 ---
 
@@ -89,215 +110,297 @@ SENTRAL-Multi-Spectrum-Stock-Analysis/
 
 ## SENTRAL — Complete Stock Analysis
 
-SENTRAL is an 8-pillar multi-spectrum analysis pipeline:
+> **Full deep-dive documentation:** [SENTRAL.md](SENTRAL.md) — covers every notebook cell, all module APIs, signal math, backtest strategy conditions, Reddit OAuth upgrade guide, and the full outputs reference.
+
+SENTRAL (**Sen**timent + **T**echnical + fund**a**mental Ana**l**ysis) is an 8-pillar end-to-end stock analysis system — available as an **82-cell Jupyter notebook** (`SENTRAL_Complete.ipynb`) and an **8-tab Streamlit app** (`sentral_app/`).
+
+---
+
+### Architecture Overview
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                        SENTRAL Pipeline                         │
+│  Ticker Input                                                    │
+│       │                                                          │
+│       ├──→ [1] Data Loader    (yfinance OHLCV + 35 TA cols)     │
+│       ├──→ [2] Fundamental    (38 metrics, Altman Z, Piotroski)  │
+│       ├──→ [3] Technical      (35 indicators + risk metrics)     │
+│       ├──→ [4] News           (13 sources — 7 APIs + 6 RSS)      │
+│       ├──→ [5] Sentiment      (10 models, weighted ensemble)     │
+│       ├──→ [6] ML Forecast    (LSTM + Transformer + Monte Carlo) │
+│       │                                                          │
+│       ├──→ [7] Signal Engine                                     │
+│       │         └── 0.30×F + 0.30×T + 0.20×S + 0.20×M          │
+│       │             → BUY / HOLD / SELL + Confidence %          │
+│       │                                                          │
+│       ├──→ [8] Backtesting    (20 strategies, full metrics)      │
+│       └──→ [9] Report         (HTML + PDF + JSON)                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+| Pillar | Weight | Rationale |
+|--------|--------|-----------|
+| Fundamental | 0.30 | Long-term business quality is the foundation of intrinsic value |
+| Technical | 0.30 | Price action reflects market consensus and momentum |
+| Sentiment | 0.20 | News/social tone drives near-term volatility |
+| Forecast (ML) | 0.20 | Forward-looking context with measured uncertainty |
+
+---
+
+### `SENTRAL_Complete.ipynb` — Notebook Guide (82 Cells)
+
+Run with kernel: *Python (SENTRAL venv)*. Configuration in Cell 2:
+
+```python
+TICKER         = "HAL.NS"    # Any Yahoo Finance symbol (NSE .NS / BSE .BO / US)
+PERIOD         = "5y"        # Historical data: 1y / 2y / 3y / 5y / 10y / max
+BENCH_TICKER   = "^NSEI"     # Benchmark: ^NSEI (Nifty 50), ^GSPC (S&P 500)
+FORECAST_DAYS  = 30          # Days to forecast forward
+LOOKBACK       = 60          # LSTM sequence window length (days)
+N_SIMULATIONS  = 1000        # Monte Carlo simulation paths
+USE_ML         = True        # Toggle ML forecasting (disable for faster runs)
+```
+
+| Cell Range | Pillar | Content |
+|------------|--------|---------|
+| 1–5 | Setup | Imports, config, API keys, output directory |
+| 6–18 | Fundamentals | 38 metrics, Altman Z, Piotroski, DCF, Graham, peers |
+| 19–26 | Technical | 35 indicators, 6-chart dashboard, risk metrics |
+| 27–32 | News | 13-source fetch, relevance scoring, timeline |
+| 33–42 | Sentiment | 10-model inference, ensemble, distribution charts |
+| 43–54 | ML Forecast | LSTM + Transformer training, Monte Carlo, forecast chart |
+| 55 | Signal | Composite score computation + display |
+| 56–68 | Backtest | 20 strategies, equity curves, metrics table |
+| 69–82 | Report | HTML/PDF report, JSON dump, AI thesis |
+
+---
 
 ### Pillar 1 — Fundamental Analysis
-- **38 metrics**: P/E, P/B, P/S, EV/EBITDA, PEG, ROE, ROA, ROCE, Gross/Operating/Net margins, D/E, Current Ratio, Quick Ratio, Interest Coverage
-- **Altman Z-Score** (5-factor bankruptcy predictor): Safe > 2.99, Grey 1.81–2.99, Distress < 1.81
-- **Piotroski F-Score** (9-point profitability + leverage + efficiency): Strong ≥ 7, Moderate 4–6, Weak < 4
-- **DCF Valuation**: 10-year discounted cash flow with configurable WACC and terminal growth
-- Composite fundamental score normalised to [−1, +1]
 
-### Pillar 2 — Technical Analysis (35 indicators)
+**38 metrics across 5 categories:**
+
+| Category | Metrics |
+|----------|---------|
+| Valuation | P/E (trailing + forward), P/B, P/S, EV/EBITDA, EV/Revenue, PEG Ratio |
+| Profitability | Gross Margin, Operating Margin, EBITDA Margin, Net Margin, ROE, ROA |
+| Growth | Revenue Growth YoY, Earnings Growth YoY, FCF Growth |
+| Solvency | D/E Ratio, Current Ratio, Quick Ratio, Interest Coverage, Total Debt (Cr) |
+| Per-Share | EPS (TTM), Book Value/Share, Revenue/Share, Dividend Yield, Dividend/Share |
+
+**Altman Z-Score:**
+$$Z = 1.2 X_1 + 1.4 X_2 + 3.3 X_3 + 0.6 X_4 + 1.0 X_5$$
+
+| Variable | Formula | Measures |
+|----------|---------|---------|
+| X₁ | Working Capital / Total Assets | Short-term liquidity |
+| X₂ | Retained Earnings / Total Assets | Accumulated profitability |
+| X₃ | EBIT / Total Assets | Operating efficiency |
+| X₄ | Market Cap / Total Liabilities | Leverage buffer |
+| X₅ | Revenue / Total Assets | Asset utilisation |
+
+| Z-Score | Zone |
+|---------|------|
+| > 2.99 | Safe ✅ |
+| 1.81 – 2.99 | Grey ⚠️ |
+| < 1.81 | Distress 🔴 |
+
+> **Indian stock note:** `yfinance` returns `None` for `info.get("totalAssets")` on NSE/BSE stocks. SENTRAL reads `Total Assets` directly from the balance sheet DataFrame.
+
+**Piotroski F-Score (9 criteria):**
+
+| Group | Criterion | +1 if… |
+|-------|-----------|--------|
+| Profitability | ROA > 0 | Positive return on assets |
+| | OCF > 0 | Positive operating cash flow |
+| | ROA improving | Higher ROA vs prior year |
+| | Accruals (OCF/TA > ROA) | Cash earnings exceed reported earnings |
+| Leverage | LT Debt decreasing | Less long-term debt than prior year |
+| | Current Ratio improving | Better liquidity than prior year |
+| | No dilution | Share count not increased |
+| Efficiency | Gross Margin improving | Higher gross margin than prior year |
+| | Asset Turnover improving | Better asset utilisation |
+
+**Score ≥ 7 = Strong 🟢 · 4–6 = Moderate 🟡 · < 4 = Weak 🔴**
+
+---
+
+### Pillar 2 — Technical Analysis (35 Indicators)
+
 | Category | Indicators |
 |----------|------------|
 | Moving Averages | SMA 10/20/50/100/200, EMA 10/20/50/200 |
-| Momentum | RSI-14, Stochastic K/D, Williams %R, ROC-10 |
-| Trend | MACD, MACD Signal, MACD Hist, ADX, +DI, −DI, CCI, DPO, Ichimoku A/B |
-| Volatility | Bollinger Bands (±2σ), ATR, Keltner Channels, Ulcer Index |
-| Volume | OBV, CMF, MFI, VWAP |
-| Returns | 1d/5d/20d returns |
+| Momentum | RSI-14, Stochastic %K/%D, Williams %R, ROC-10 |
+| Trend | MACD, MACD Signal, MACD Hist, ADX, +DI/−DI, CCI, DPO, Ichimoku A/B |
+| Volatility | Bollinger Bands (±2σ), BB%, ATR, Keltner Upper/Lower, Ulcer Index |
+| Volume | OBV, CMF (Chaikin Money Flow), MFI, VWAP |
+| Returns | 1-day, 5-day, 20-day simple returns |
 
-Risk metrics: Sharpe, Sortino, VaR (95%), CVaR, Max Drawdown, Calmar Ratio
+**Risk metrics:**
 
-### Pillar 3 — News Aggregation (13 sources)
-| Source | Type |
-|--------|------|
-| Alpha Vantage | REST API |
-| Finnhub | REST API |
-| Tavily | AI search API |
-| NewsAPI | REST API |
-| EODHD | REST API |
-| Marketaux | REST API |
-| APILayer | REST API |
-| Yahoo Finance RSS | RSS feed |
-| Google News RSS | RSS feed |
-| ET Markets RSS | RSS feed |
-| Livemint RSS | RSS feed |
-| Reddit RSS | Public RSS (no auth) |
-| StockTwits | Public RSS |
+| Metric | Formula |
+|--------|---------|
+| Sharpe Ratio | `(CAGR − 6%) / annualised_std` |
+| Sortino Ratio | `(CAGR − 6%) / downside_deviation` |
+| VaR (95%) | 5th percentile of daily log returns |
+| CVaR (ES) | Mean of returns below VaR |
+| Max Drawdown | Peak-to-trough decline over full period |
+| Calmar Ratio | `CAGR / |Max Drawdown|` |
 
-### Pillar 4 — Sentiment Analysis (10 models)
-| Model | Type |
-|-------|------|
-| NLTK VADER | Rule-based |
-| FinBERT | Finance-tuned BERT |
-| FinBERT-Tone | yiyanghkust/finbert-tone (w/ cardiffnlp fallback) |
-| DistilRoBERTa | Lightweight RoBERTa |
-| RoBERTa-Large | Large sentiment model |
-| StockTwits-RoBERTa | Market sentiment specialist |
-| Groq (6 models) | LLaMA 3.3 70B, LLaMA 4 Scout, Qwen3-32B, GPT-OSS |
-| Gemini (3 models) | gemini-2.5-flash, lite, pro |
+---
 
-Ensemble score = weighted average across all models → label: Bullish / Neutral / Bearish
+### Pillar 3 — News Aggregation (13 Sources)
+
+| Source | Type | Coverage |
+|--------|------|---------|
+| Alpha Vantage | REST API | Global + pre-labeled sentiment |
+| Finnhub | REST API | Company-specific news |
+| Tavily | AI Search API | Deep web + LLM-summarised |
+| NewsAPI | REST API | 70,000+ global sources |
+| EODHD | REST API | Financial + filing news |
+| Marketaux | REST API | Market-sentiment headlines |
+| APILayer | REST API | Financial headline feed |
+| Yahoo Finance | RSS | Real-time Yahoo Finance articles |
+| Google News | RSS | Broad news via Google RSS |
+| ET Markets | RSS | India (Economic Times) |
+| Livemint | RSS | India business news |
+| Reddit | RSS → OAuth upgrade | Retail investor sentiment |
+| StockTwits | RSS | Stock-specific social sentiment |
+
+Articles are **relevance-scored** by ticker/company name mention frequency; only `relevance_score ≥ 1` articles pass to sentiment analysis.
+
+---
+
+### Pillar 4 — Sentiment Analysis (10 Models)
+
+| Model | Architecture | Specialisation | Weight |
+|-------|-------------|----------------|--------|
+| NLTK VADER | Rule-based lexicon | General text | 0.8× |
+| FinBERT (ProsusAI) | BERT-base | Financial news | 1.5× |
+| FinBERT-Tone (yiyanghkust) | BERT-base | Tone analysis | 1.5× |
+| DistilRoBERTa | DistilRoBERTa | Fast general sentiment | 1.0× |
+| RoBERTa-Large | RoBERTa-large | High-accuracy general | 1.2× |
+| twitter-roberta (cardiffnlp) | RoBERTa | Short-form social text | 1.0× |
+| Groq llama-3.3-70b-versatile | LLaMA 3.3 70B | Reasoning + context | 2.0× |
+| Groq llama-4-scout | LLaMA 4 | Multi-modal reasoning | 2.0× |
+| Groq qwen-32b | Qwen 32B | Multi-lingual | 2.0× |
+| Gemini 2.5 Flash | Gemini | Long-context analysis | 2.0× |
+
+**Groq cascade:** `llama-3.3-70b-versatile` → `llama-4-scout` → `llama-3.1-8b-instant` → `qwen-32b-preview` → `deepseek-r1-distill-llama-70b` → `mistral-saba-24b`
+
+**Gemini cascade:** `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash`
+
+**Ensemble formula:**
+$$S_{ensemble} = \frac{\sum_i w_i \cdot s_i}{\sum_i w_i}, \quad s_i \in \{-1,\, 0,\, +1\}$$
+
+Label: **Bullish** > +0.15 · **Neutral** −0.15 to +0.15 · **Bearish** < −0.15
+
+---
 
 ### Pillar 5 — ML Price Forecasting
 
-#### LSTM Model Architecture
+#### LSTM Architecture
 ```
-Input: (batch, seq_len=60, features=1)  ← rolling 60-day close price window
-    ↓
-LSTM Layer 1: hidden_size=128, dropout=0.2
-    ↓
-LSTM Layer 2: hidden_size=128, dropout=0.2
-    ↓
-Fully Connected: 128 → 64 → 1
-    ↓
-Output: predicted next-day price
+Input  (batch, seq_len=60, features=1)
+  → LSTM Layer 1  (hidden=128, dropout=0.2)
+  → LSTM Layer 2  (hidden=128, dropout=0.2)
+  → Linear(128→64) → ReLU → Linear(64→1)
+Output: predicted next-day close price
 ```
-- **Training**: 80/20 train-test split on historical close prices
-- **Normalisation**: MinMaxScaler [0, 1] → inverse-transformed for output
-- **Loss**: MSE; **Optimizer**: Adam, lr=0.001, epochs=50
-- **Forecast**: Rolls window forward 30 days to produce daily price path
+80/20 split · MinMaxScaler [0,1] · Adam lr=0.001 · MSE loss · 50 epochs · saved as `lstm_model.pt`
 
 #### Temporal Transformer Architecture
 ```
-Input: (batch, seq_len=60, d_model=64)  ← projected by Linear(1, 64)
-    ↓
-Positional Encoding: sinusoidal, max_len=500
-    ↓
-TransformerEncoder (2 layers):
-    - nhead=8 attention heads
-    - dim_feedforward=256
-    - dropout=0.1
-    ↓
-Global Average Pooling (mean across seq_len)
-    ↓
-Fully Connected: 64 → 1
-    ↓
-Output: predicted next-day price
+Input → Linear(1, d_model=64) → Positional Encoding (sinusoidal)
+  → TransformerEncoder (nhead=8, layers=2, dim_feedforward=256, dropout=0.1)
+  → Global Average Pooling → Linear(64→1)
+Output: predicted next-day close price
 ```
-- Trained in parallel with LSTM using same dataset split
-- Captures long-range dependencies more effectively than LSTM for liquid stocks
+Saved as `transformer_model.pt`
 
 #### Monte Carlo GBM
-```
-dS = μ·S·dt + σ·S·dW
-```
-- **μ** (drift): annualised from historical log returns
-- **σ** (volatility): annualised standard deviation of log returns
-- **Simulations**: 1,000–5,000 paths (configurable in sidebar)
-- **Horizon**: 30 trading days forward
-- **Output**: mean path ± 1σ band, P(profit > 0) metric
+$$S_{t+1} = S_t \cdot \exp\!\left(\left(\mu - \frac{\sigma^2}{2}\right)\Delta t + \sigma\sqrt{\Delta t}\,\varepsilon\right), \quad \varepsilon \sim \mathcal{N}(0,1)$$
 
-#### Forecast Ensemble
+- **μ** = annualised mean log return · **σ** = annualised std of log returns
+- Output: P10/P50/P90 percentile paths · P(profit > 0) · Forecast VaR
+
+#### Ensemble
 ```
-Ensemble Price = 0.5 × LSTM_pred + 0.5 × Transformer_pred
-Forecast Score = (Ensemble_30d_return − threshold) / normalisation_factor
+Ensemble[t] = 0.5 × LSTM[t] + 0.5 × Transformer[t]
+Score       = clip((Ensemble_30d_return − μ) / σ, −1, +1)
 ```
-The forecast score is clipped to [−1, +1] for signal integration.
 
 ---
 
 ### Pillar 6 — Signal Engine
 
-#### Full Score Computation
-```
-Component Scores (each normalised to [−1, +1]):
-  F_score  = fundamental_score(38 metrics)
-  T_score  = technical_score(35 indicators → directional consensus)
-  S_score  = sentiment_score(ensemble of 10 models)
-  ML_score = forecast_score(LSTM + Transformer 30-day return)
+$$\text{Score} = 0.30 \cdot F + 0.30 \cdot T + 0.20 \cdot S + 0.20 \cdot M \quad \in [-1, +1]$$
 
-Final Signal Score:
-  S = 0.30 × F_score + 0.30 × T_score + 0.20 × S_score + 0.20 × ML_score
+| Variable | Source | Range |
+|----------|--------|-------|
+| F | Fundamental score (38 metrics vs sector medians) | [−1, +1] |
+| T | Technical score (35-indicator directional vote) | [−1, +1] |
+| S | Sentiment ensemble (10-model weighted average) | [−1, +1] |
+| M | ML forecast score (30-day return, normalised) | [−1, +1] |
 
-Decision:
-  S > +0.15  → BUY  🟢  (confidence = S × 100%)
-  S < −0.15  → SELL 🔴  (confidence = |S| × 100%)
-  otherwise  → HOLD 🟡
-```
+| Score | Signal |
+|-------|--------|
+| > +0.15 | BUY 🟢 |
+| −0.15 to +0.15 | HOLD 🟡 |
+| < −0.15 | SELL 🔴 |
 
-#### Fundamental Sub-score (detail)
-Each metric is normalised against sector medians and clipped to [−1, +1]:
-- **Valuation**: low P/E, P/B, EV/EBITDA → positive; high multiples → negative
-- **Profitability**: high ROE, ROA, Net Margin, Operating Margin → positive
-- **Growth**: revenue growth, earnings growth → positive if > 15%
-- **Safety**: low D/E, high Current Ratio, positive FCF → positive
-- **Health**: Piotroski ≥ 7 → +0.3; Altman Z ≥ 3 → +0.2
+$$\text{Confidence \%} = \min\!\left(100,\; |\text{Score}| \times 100 \times (1 + \text{pillar\_agreement})\right)$$
 
-#### Technical Sub-score (detail)
-Each indicator votes +1 (bullish) or −1 (bearish) based on standard thresholds:
-- **RSI**: < 30 → bullish, > 70 → bearish
-- **MACD**: line > signal → bullish
-- **Bollinger**: price below lower band → bullish
-- **ADX**: > 25 with +DI > −DI → bullish
-- **SMA/EMA crossovers**: short above long → bullish
-- Aggregate vote / number of indicators → score in [−1, +1]
-
-#### Sentiment Sub-score (detail)
-```
-Raw scores per model: {bullish: +1, neutral: 0, bearish: −1}
-
-Model weights:
-  - FinBERT (finance-tuned)   : 1.5×
-  - FinBERT-Tone              : 1.5×
-  - LLM (Groq/Gemini)         : 2.0×  (if available)
-  - RoBERTa-based models      : 1.2×
-  - VADER (rule-based)        : 0.8×  (lower weight)
-
-S_score = weighted_avg(scores) clipped to [−1, +1]
-```
+**Risk flags** (up to 5 warnings displayed):
+- Altman Z < 1.81 · D/E > 3.0 · RSI > 80 or < 20 · Max Drawdown > 40% · Daily VaR > 5%
 
 ---
 
 ### Pillar 7 — 20-Strategy Backtesting
 
-All strategies are backtested over the full historical period (up to 5 years) with realistic assumptions:
-- **Commission**: 0.1% per trade round-trip
-- **Position sizing**: 100% equity per signal
-- **Execution**: end-of-day signal, next-bar execution
+**Assumptions:** 0.1% commission round-trip · 100% equity · close-price execution
 
-| Category | Strategies |
-|----------|------------|
-| Trend-Following | EMA+MACD+RSI, Golden/Death Cross (SMA 50/200), Triple EMA (9/21/55) |
-| Momentum | MACD crossover, ROC, Williams %R |
-| Mean-Reversion | RSI Oversold/Overbought, Bollinger Bands, Stochastic |
-| Volume | CMF Positive Flow, OBV Momentum, VWAP cross, MFI |
-| Volatility | Keltner Channel Breakout, Donchian Channel |
-| Multi-Factor | Multi-Confluence (5-indicator), Ichimoku Cloud, ADX Trend |
-| Benchmark | Buy & Hold |
+| # | Strategy | Entry Condition |
+|---|----------|----------------|
+| 1 | EMA + MACD + RSI | EMA cross AND MACD bullish AND RSI 30–70 |
+| 2 | Golden / Death Cross | SMA50 crosses SMA200 |
+| 3 | MACD Signal Cross | MACD line crosses Signal |
+| 4 | RSI Oversold Bounce | RSI crosses up through 30 |
+| 5 | RSI Overbought Exit | RSI crosses down through 70 |
+| 6 | Bollinger Mean Reversion | Price touches lower/upper band |
+| 7 | ADX Trend Following | ADX > 25 AND +DI > −DI |
+| 8 | Stochastic Crossover | %K × %D in oversold/overbought zone |
+| 9 | Williams %R | %R crosses −80 (buy) / −20 (sell) |
+| 10 | CMF Positive Flow | CMF crosses 0 from below |
+| 11 | OBV Momentum | OBV > 20-day OBV SMA |
+| 12 | VWAP Cross | Price crosses VWAP |
+| 13 | MFI Signal | MFI crosses 20 (buy) / 80 (sell) |
+| 14 | ROC Signal | Rate-of-Change crosses 0 |
+| 15 | Triple EMA | EMA9 > EMA21 > EMA55 |
+| 16 | Donchian Channel | Price breaks 20-day high/low |
+| 17 | Keltner Breakout | Price breaks Keltner channel |
+| 18 | Multi-Confluence | ≥ 5 indicators agree on direction |
+| 19 | Ichimoku Cloud | Price above/below cloud + Tenkan/Kijun cross |
+| 20 | Buy & Hold | Always long (baseline) |
 
-**Output per strategy** (in `backtest.csv`):
-- Total return %, CAGR %, Sharpe, Sortino, Max Drawdown
-- Win Rate %, Profit Factor, number of trades
-- Kelly Criterion, suggested stop-loss
+**Output per strategy** (→ `backtest.csv`): Total Return · CAGR · Sharpe · Sortino · Max Drawdown · Win Rate · Profit Factor · Trades · Kelly Criterion · Stop-Loss suggestion
+
+---
 
 ### Pillar 8 — AI Investment Thesis
 
-Uses Gemini with a cascading fallback model chain:
-```
-gemini-2.5-flash → gemini-2.5-flash-lite → gemini-2.0-flash
-```
+Uses Gemini cascade (`gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash`) with a fully structured prompt containing all pillar outputs:
 
-The thesis prompt includes the following structured context:
-- Current price, P/E, P/B, ROE, D/E, Altman Z, Piotroski score
-- Composite signal (BUY/HOLD/SELL) and confidence %
-- Technical indicator consensus (RSI, MACD, trend direction)
-- Sentiment score and source count
-- ML forecast return and direction
-- Best-performing backtest strategy
+**Thesis output sections:**
+1. **Company Summary** — business description and competitive moat
+2. **Bull Case** — 3 data-driven reasons to invest
+3. **Bear Case** — 3 key risks and concerns
+4. **Valuation Assessment** — DCF vs Graham vs current market price
+5. **Technical Outlook** — trend, momentum, key support/resistance
+6. **Sentiment Context** — news tone, social signal strength
+7. **Recommendation** — BUY/HOLD/SELL with confidence and suggested time horizon
 
-**Output sections in the generated thesis:**
-1. **Company Summary** — business description, competitive moat
-2. **Bull Case** — key reasons to invest (data-driven)
-3. **Bear Case** — key risks and concerns
-4. **Valuation Assessment** — DCF vs Graham vs current price
-5. **Technical Outlook** — trend, momentum, support/resistance
-6. **Sentiment Context** — news tone, social media signals
-7. **Recommendation** — final BUY/HOLD/SELL with confidence and time horizon
-
-The thesis is rendered as formatted HTML in the app and included in the PDF report.
+The thesis is rendered as formatted HTML in the app and embedded in the PDF report.
 
 ---
 
@@ -307,23 +410,37 @@ The thesis is rendered as formatted HTML in the app and included in the PDF repo
 cd sentral_app && streamlit run app.py
 ```
 
+**Sidebar controls:** Ticker · Period · Forecast Days (7–120) · LSTM Lookback (20–120) · Monte Carlo N (100–5000) · ML toggle · 10 API key fields (pre-loaded from `.env`)
+
 | Tab | Contents |
 |-----|----------|
-| **📊 Signal Engine** | Composite score gauge, BUY/HOLD/SELL banner, pillar score breakdown (bar chart), confidence %, signal report download |
-| **🔢 Fundamentals** | 38 metrics (4 tables: profitability/valuation/solvency/efficiency), DCF valuation, Graham Number, Altman Z gauge, Piotroski F scorecard, P&L + Balance Sheet + Cash Flow charts |
-| **📈 Technical** | Interactive candlestick + 4 MA overlay, RSI + MACD + Stochastic subplots, Bollinger Bands, Ichimoku Cloud, ATR / OBV / CMF / VWAP charts, Risk metrics table (Sharpe, VaR, Max DD) |
-| **📰 News & Sentiment** | News article feed (headlines + source + date), per-model sentiment scores, ensemble gauge, bullish/bearish word cloud, news count timeline |
-| **🤖 ML Forecast** | LSTM vs Transformer vs ensemble 30-day forecast chart, Monte Carlo simulation fan (P(profit)), training loss curves, forecast confidence interval |
-| **⚙️ Backtest** | All 20 strategy results table (sortable), equity curves for top 5 strategies, trade log for best strategy, drawdown comparison chart |
-| **👥 Peers** | LLM-discovered peer list (with discovery method badge), peer comparison table (P/E, ROE, Net Margin, EV/EBITDA), scatter bubble chart (ROE vs P/E, size = market cap) |
-| **🧠 AI Thesis** | Full AI-generated investment thesis (8 sections), export as PDF button, signal summary card |
+| **📊 Signal Engine** | Composite score gauge, BUY/HOLD/SELL banner, 4 pillar score bars, confidence %, risk flags, signal download |
+| **🔢 Fundamentals** | 38-metric display (5 tables), DCF card, Graham Number card, Altman Z gauge, Piotroski F scorecard, P&L + BS + CF charts |
+| **📈 Technical** | 6-row chart (Price+MA, RSI, MACD, Stochastic, BB, Volume), Ichimoku cloud, risk metrics table |
+| **📰 News & Sentiment** | Relevance-sorted article feed, per-model sentiment scores, ensemble gauge, model agreement chart |
+| **🤖 ML Forecast** | 30-day LSTM+Transformer ensemble chart, Monte Carlo fan (P10/P50/P90), P(profit) metric, training curves |
+| **⚙️ Backtest** | 20-strategy results table (colour-coded), top-5 equity curves, best strategy highlight |
+| **👥 Peers** | LLM discovery badge, 12-column peer table, P/E bar, Market Cap bar, ROE vs P/B scatter |
+| **🧠 AI Thesis** | Full Gemini thesis (8 sections), PDF export button |
 
-**Sidebar controls:**
-- Ticker (NSE/BSE/US stocks), Period (6m – 5y)
-- Forecast horizon (7–120 days), LSTM look-back window (20–120 days)
-- Monte Carlo simulations (1K–5K)
-- Enable/disable ML (for faster load on slow connections)
-- 10 API key text fields (saved to session state, never to disk)
+---
+
+## Module Reference — `sentral_app`
+
+| Module | Key Functions |
+|--------|--------------|
+| `data_loader.py` | `download_stock_data(ticker, period) → dict` · `compute_features(df) → df` |
+| `fundamental.py` | `compute_fundamental_score(info, bal, fin, cf) → float` · `compute_altman_z(bal, fin) → (float, str)` · `compute_piotroski(bal, fin, cf) → (int, dict)` · `compute_dcf(cf, info, wacc, g) → dict` |
+| `technical.py` | `compute_technical_score(data) → float` · `compute_risk_metrics(data) → dict` · `detect_patterns(data) → list` |
+| `news.py` | `fetch_all_news(ticker, company, keys) → list[dict]` |
+| `sentiment.py` | `SentimentAnalyzer.analyze_batch(articles) → dict` · `ensemble_score(scores) → (float, str)` |
+| `ml_forecast.py` | `train_lstm(data, lookback, ...) → (model, scaler)` · `train_transformer(...)` · `ensemble_forecast(...)` · `monte_carlo_simulation(...)` |
+| `signals.py` | `compute_composite_signal(F, T, S, M, weights) → {signal, score, confidence, flags}` |
+| `backtest.py` | `run_all_strategies(data) → pd.DataFrame` · `get_optimal_strategy(results) → str` |
+| `peers.py` | `get_peer_data(ticker, sector, company, exchange, groq_k, gemini_k) → (list, df, method)` |
+| `report.py` | `generate_html_report(ticker, data, dir) → path` · `generate_pdf_report(ticker, data, dir) → path` |
+
+> See [SENTRAL.md → Module Deep-Dives](SENTRAL.md#module-deep-dives) for full function signatures and return types.
 
 ---
 
@@ -373,27 +490,142 @@ cd sentral_app && streamlit run app.py
 
 ## SCREENER — Fundamental + Technical Deep Dive
 
-A full replica of screener.in × groww.in built in Python. See [SCREENER.md](SCREENER.md) for detailed documentation.
+> **Full documentation:** [SCREENER.md](SCREENER.md). This section covers all 18 notebook sections, the 11-tab Streamlit app, valuation formulas, and the screener engine inline.
 
-**18 sections in the notebook:**
-1. Company Overview (header metrics)
-2. Price Chart (candlestick + MA)
-3. Quarterly Results (12 quarters)
-4. Annual P&L
-5. Balance Sheet
-6. Cash Flow Statement
-7. Financial Ratios (4 categories, 25+ ratios)
-8. Shareholding Pattern
-9. Peer Comparison (LLM-powered)
-10. Technical Analysis (RSI, MACD, BB, Stochastic)
-11. Dividend History
-12. Valuation Models (DCF, Graham Number, P/E reversion, Lynch PEG)
-13. Multi-Stock Screener (custom query)
-14. Corporate Events
-15. OBV + Volume Analysis
-16. Investment Calculator (SIP + Lump-sum)
-17. Financial Health (Altman Z + Piotroski F)
-18. Company Profile
+SCREENER is a **Python implementation of screener.in × groww.in** — covering company overview, quarterly/annual financials, 25+ ratios, shareholding, LLM peer discovery, valuation models, technical indicators, a multi-stock screener, and an investment calculator.
+
+### Feature Coverage
+
+| Feature | screener.in ✓ | groww.in ✓ |
+|---------|:---:|:---:|
+| Quarterly P&L table | ✅ | ✅ |
+| Annual P&L + balance sheet | ✅ | ✅ |
+| Cash flow statement | ✅ | — |
+| Financial ratio analysis | ✅ | ✅ |
+| Shareholding pattern | ✅ | ✅ |
+| Peer comparison table | ✅ | ✅ |
+| Custom stock screener | ✅ | — |
+| Investment calculator (SIP) | — | ✅ |
+| Technical chart | — | ✅ |
+| Valuation models (DCF, Graham) | ✅ | — |
+| Piotroski F-Score | ✅ | — |
+| Altman Z-Score | ✅ | — |
+| Dividend history | ✅ | ✅ |
+| Corporate events calendar | ✅ | ✅ |
+| OBV + Volume indicators | — | ✅ |
+| Pros & Cons analysis | ✅ | ✅ |
+
+---
+
+### `screener.ipynb` — 18 Sections
+
+Configure in **Cell 2**:
+```python
+TICKER = "HAL.NS"   # Any Yahoo Finance symbol
+PERIOD = "5y"       # 1y / 2y / 3y / 5y / 10y / max
+BENCH  = "^NSEI"    # Benchmark: ^NSEI, ^GSPC, ^BSE200
+```
+Loads `GROQ_API_KEY` + `GEMINI_API_KEY` from `.env` for peer discovery.
+
+**Cell 3** downloads: OHLCV history · Annual + quarterly financials (P&L, balance sheet, cash flow) · Dividends + splits · Institutional holders · Earnings calendar · Benchmark history
+
+| Section | Cells | Content |
+|---------|-------|---------|
+| **1. Company Overview** | 4–6 | Header card (price, 52W range, market cap, 18 key stats), 12+ auto-generated Pros 🟢 / Cons 🔴 |
+| **2. Price Chart** | 7–9 | Plotly candlestick + SMA20/50/200 + EMA20 overlays; period returns vs benchmark (1M/3M/6M/1Y/3Y) |
+| **3. Quarterly Results** | 10–11 | 12-quarter table (Revenue, OP Inc, Net Profit, OPM%, NPM%, EPS) with margin gradients; 4-subplot chart |
+| **4. Annual P&L** | 12–13 | Annual table + grouped bars (Revenue/Profit) + margin trend lines (Gross/Operating/Net) |
+| **5. Balance Sheet** | 14–15 | Annual table + Assets vs Liabilities vs Equity grouped bar; D/E + Quick Ratio trends |
+| **6. Cash Flow** | 16–17 | OCF / Investing CF / Financing CF / FCF (OCF − CapEx) grouped bar chart |
+| **7. Financial Ratios** | 18–20 | 4 categories (Valuation/Profitability/Solvency/Per-Share), 25+ ratios; radar scorecard |
+| **8. Shareholding Pattern** | 21–22 | Donut pie (Promoter / Institutional / Public); top 15 institutional holders table |
+| **9. Peer Comparison** | 23–26 | LLM-discovered peers; 12-column styled table; 4-chart grid + ROE vs P/E bubble scatter |
+| **10. Technical Analysis** | 27–29 | Signals summary table (RSI/MACD/BB/ADX/Stochastic/OBV/Ichimoku); 4-row Plotly chart |
+| **11. Dividend History** | 30–31 | Per-event + annual totals bar charts; total paid, average annual yield |
+| **12. Valuation Models** | 32–33 | DCF, Graham Number, P/E Mean Reversion, Lynch PEG — side-by-side comparison |
+| **13. Multi-Stock Screener** | 34–35 | 60 NSE stocks, 6 configurable filters, colour-graded results table |
+| **14. Corporate Events** | 36–37 | Next earnings date + estimates; ex-dividend date; splits history |
+| **15. OBV + Volume** | 38–39 | 3-row chart: OBV / CMF (Chaikin Money Flow) / MFI (Money Flow Index) |
+| **16. Investment Calculator** | 40–41 | SIP + lump-sum projector; historical CAGR pre-filled; 10-year growth chart |
+| **17. Financial Health** | 42–43 | Piotroski F-Score (9 criteria table) + Altman Z-Score; zone interpretation |
+| **18. Company Profile** | 44–45 | Full description, HQ, employees, website, CEO and officers list |
+
+---
+
+### Valuation Models (Section 12)
+
+**1. DCF — Discounted Cash Flow**
+$$\text{Intrinsic} = \sum_{n=1}^{10} \frac{FCF_n}{(1+\text{WACC})^n} + \frac{TV}{(1+\text{WACC})^{10}}$$
+- Base FCF = average of last 4 years' Free Cash Flow
+- Growth projected at revenue growth rate, capped at 20%
+- Terminal Value: `TV = FCF₁₀ × (1+g) / (WACC − g)`
+
+**2. Graham Number**
+$$\text{Graham} = \sqrt{22.5 \times \text{EPS} \times \text{BookValuePerShare}}$$
+Benjamin Graham's conservative intrinsic value — assumes fair stock satisfies P/E × P/B ≤ 22.5.
+
+**3. P/E Mean Reversion**
+$$\text{FairValue} = \text{EPS} \times \text{Sector Median P/E}$$
+Sector PE lookup: Technology=35 · Financials=18 · Healthcare=28 · Industrials=24 · Energy=12 · default=22
+
+**4. Lynch PEG Ratio**
+$$\text{PEG} = \frac{P/E}{\text{EPS Growth Rate}}$$
+PEG < 1 → potentially undervalued · 1–2 → fair · > 2 → potentially overvalued
+
+---
+
+### SCREENER App (`screener_app/`) — 11 Tabs
+
+```bash
+cd screener_app && streamlit run app.py
+```
+**Sidebar:** Ticker · Period · Benchmark · Groq API Key · Gemini API Key
+
+| Tab | Contents |
+|-----|----------|
+| **Overview** | 12-metric grid card, 52W range progress bar, Pros 🟢 / Cons 🔴 auto-analysis, company description |
+| **Price Chart** | Candlestick/Line/OHLC toggle, MA selector (SMA20/50/200, EMA20/50), period returns vs benchmark |
+| **Financials** | 3 sub-tabs: P&L (margins + bars) · Balance Sheet (assets/liabilities/equity) · Cash Flow (OCF/ICF/FCF) |
+| **Ratios** | 4-category tables in 2×2 grid, radar scorecard, Altman Z, Piotroski F (all 9 criteria in expander) |
+| **Quarterly** | 12-quarter gradient table, 4-subplot chart (Revenue / Net Profit / OPM% / EPS) |
+| **Shareholding** | Promoter/Institutional/Public donut pie, top 15 institutional holders |
+| **Peers** | Discovery badge (🤖 LLM or 📚 DB), 12-column styled table, P/E bars, Mkt Cap bars, ROE vs P/B scatter |
+| **Valuation** | DCF (WACC 8–20%, growth 2–8% sliders), Graham Number, P/E Reversion — all side-by-side |
+| **Technical** | RSI/MACD/ADX/ATR metric cards; 4-row chart (Price+BB / RSI / MACD / Stochastic); OBV+CMF |
+| **Screener** | 8 filter sliders, 60-stock NSE universe, colour-graded results table, CSV download |
+| **Calculator** | SIP + lump-sum comparison; historical CAGR pre-filled; 10-year growth chart |
+
+---
+
+### Multi-Stock Screener Engine
+
+**Default universe:** 60 NSE stocks across 10 sectors (IT · Banking · Auto · Pharma · Energy · FMCG · Metals · Infra · Defence · Consumer)
+
+**Available filters:**
+
+| Filter | Operator | Default |
+|--------|----------|---------|
+| P/E Ratio | ≤ | 30 |
+| Price-to-Book | ≤ | 5 |
+| ROE % | ≥ | 15 |
+| Net Margin % | ≥ | 10 |
+| Debt/Equity | ≤ | 1.0 |
+| Market Cap (₹ Cr) | ≥ | 50,000 |
+| Revenue Growth % | ≥ | 10 |
+| Dividend Yield % | ≥ | 0 |
+
+Fetched metrics per stock: Name · Sector · Price · Mkt Cap · P/E · P/B · ROE% · Net Margin% · D/E · Rev Growth% · Div Yield% · Current Ratio · Beta · EPS
+
+---
+
+### SCREENER Module Reference
+
+| Module | Key Functions |
+|--------|--------------|
+| `data_loader.py` | `download_full_data(ticker, period) → dict` (22 keys, all pickle-safe) · `compute_technical_indicators(hist) → df` (25+ TA columns) |
+| `fundamentals.py` | `build_pl_table(fin, info, cur)` · `build_balance_sheet(bal, cur)` · `build_cashflow(cf, cur)` · `compute_all_ratios(info) → dict` · `compute_piotroski_fscore(bal, fin, cf, info) → dict` · `compute_altman_z(info) → dict` · `compute_dcf(cf, info, wacc, tg) → dict` · `compute_graham_number(info) → float` |
+| `peers.py` | `get_peer_data(ticker, sector, company, exchange, groq_k, gemini_k) → (list, df, method)` — 3-tier: Groq → Gemini → sector DB |
+| `screener.py` | `DEFAULT_UNIVERSE: list[str]` (60 tickers) · `fetch_screener_data(tickers: tuple) → df` (`@st.cache_data(ttl=1800)`) · `apply_filters(df, filters) → df` |
 
 ---
 
