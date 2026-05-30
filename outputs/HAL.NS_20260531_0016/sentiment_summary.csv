@@ -1,0 +1,10 @@
+,avg_score,positive%,neutral%,negative%,n_articles
+NLTK_VADER,0.267,60.0,6.7,33.3,15.0
+FinBERT,-0.3,10.0,50.0,40.0,10.0
+FinBERT_Tone,-0.1,10.0,70.0,20.0,10.0
+DistilRoBERTa,-0.2,20.0,40.0,40.0,10.0
+RoBERTa_large,0.1,40.0,30.0,30.0,10.0
+StockTwits_RoBERTa,0.0,0.0,100.0,0.0,10.0
+Llama3_Groq,0.375,50.0,37.5,12.5,8.0
+Gemma2_Groq,0.0,0.0,100.0,0.0,8.0
+Gemini_Flash,0.25,50.0,25.0,25.0,8.0

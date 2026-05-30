@@ -1,0 +1,26 @@
+{
+  "ticker": "HAL.NS",
+  "company": "Hindustan Aeronautics Limited",
+  "date": "2026-05-31",
+  "current_price": 4303.8,
+  "signal": "HOLD",
+  "final_score": 0.1151,
+  "confidence_pct": 11.5,
+  "pillar_scores": {
+    "Fundamental": 0.3889,
+    "Technical": -0.0625,
+    "Sentiment": 0.0436,
+    "Forecast": 0.0425
+  },
+  "ensemble_30d_forecast": 4340.35,
+  "forecast_return_pct": 0.85,
+  "risks": [
+    "\u26a0\ufe0f  MACD Bearish Cross"
+  ],
+  "investment_thesis": "**Investment Thesis: Hindustan Aeronautics Limited (HAL.NS)**\n\nHindustan Aeronautics Limited (HAL) presents a mixed market narrative, balancing strategic strengths with emerging competitive pressures. Recent headlines indicate continued analyst interest, with a 12-month price target cut, yet still implying an 18% upside, suggesting underlying value. Catalysts include strong demand for indigenous defense platforms like the Tejas fighter and Light Combat Helicopter (LCH), further solidified by experienced leadership appointments and ongoing program investments, such as the $63M avionics contract for the LCH program.\n\nHowever, key risks temper this optimism. The price target cut itself signals some re-evaluation by analysts. More significantly, the Indian Air Force\u2019s decision to involve private firms (Tata, L&T) for the ambitious AMCA fifth-generation jet program signals a shift, potentially eroding HAL\u2019s traditional dominance in future large-scale defense projects.\n\nThe ensemble sentiment score of +0.044, being nearly neutral, reflects this balanced outlook. While HAL remains a crucial player in India's defense ecosystem, rising competition and strategic realignments pose challenges.\n\nGiven the balanced positive catalysts against the backdrop of increasing competition and a recent price target adjustment, we maintain a **HOLD** rating. Investors should monitor HAL's ability to innovate and secure new contracts amidst a more competitive domestic landscape.\n\n***\n\n**Disclaimer:** This is a professional investment thesis based on the provided information and does not constitute financial advice. Investors should conduct their own due diligence before making any investment decisions.",
+  "kelly_fraction": 0.2073,
+  "stop_loss_1x_atr": 4136.12,
+  "target_2r": 4639.17,
+  "backtest_strategy_return": -0.2738,
+  "backtest_bh_return": -0.0579
+}
