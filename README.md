@@ -349,8 +349,6 @@ $$\text{Score} = 0.30 \cdot F + 0.30 \cdot T + 0.20 \cdot S + 0.20 \cdot M \quad
 | −0.15 to +0.15 | HOLD 🟡 |
 | < −0.15 | SELL 🔴 |
 
-$$\text{Confidence \%} = \min\!\left(100,\; |\text{Score}| \times 100 \times (1 + \text{pillar\_agreement})\right)$$
-
 **Risk flags** (up to 5 warnings displayed):
 - Altman Z < 1.81 · D/E > 3.0 · RSI > 80 or < 20 · Max Drawdown > 40% · Daily VaR > 5%
 
