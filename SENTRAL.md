@@ -205,6 +205,47 @@ cd sentral_app
 | Monte Carlo N | 1000 | Simulation paths |
 | ML Forecast | ON | Toggle LSTM + Transformer |
 | 10 API key fields | — | Loaded from `.env` |
+| Upload Bundle ZIP | — | Restore a previously saved analysis bundle |
+| Load from Bundle | — | Skip all heavy processing, display instantly |
+
+### Download / Upload Bundle
+After any successful analysis a four-button row appears **above the tabs**:
+
+| Button | File | Contents |
+|--------|------|----------|
+| ⬇ HTML Report | `SENTRAL_{TICKER}_{DATE}.html` | Full interactive report |
+| ⬇ PDF Report | `SENTRAL_{TICKER}_{DATE}.pdf` | Static PDF (requires `reportlab`) |
+| ⬇ Price + Indicators CSV | `{TICKER}_indicators.csv` | OHLCV + 35 TA indicator columns |
+| 📦 Download Full Bundle ZIP | `SENTRAL_{TICKER}_{DATE}_bundle.zip` | Complete analysis bundle (see table below) |
+
+**Bundle ZIP contents:**
+
+| File | Contents |
+|------|----------|
+| `price_indicators.csv` | OHLCV + all 35 TA columns, DatetimeIndex |
+| `news_corpus.csv` | All fetched articles |
+| `sentiment_analysis.csv` | Per-model scores + ensemble |
+| `peers.csv` | Peer comparison table |
+| `backtest_results.csv` | 20-strategy metrics (raw floats) |
+| `backtest_cumuls.csv` | Cumulative return curves per strategy |
+| `ml_forecast.csv` | 30-day LSTM / Transformer / Ensemble predictions |
+| `ml_eval.csv` | RMSE + MAPE for both models |
+| `session_data.json` | All scalars: signal, Altman Z, Piotroski, DCF, Kelly, thesis, etc. |
+
+**To restore from a bundle:**
+1. In the sidebar, upload the ZIP using **Upload Bundle ZIP**.
+2. Click **⚡ Load from Bundle**.
+3. All 8 tabs populate instantly with no API calls.
+
+What is **re-computed** on load (pure numpy/pandas, ~2 s total):
+`compute_risk_metrics`, `detect_candlestick_patterns`, `compute_seasonality`,
+`compute_technical_score`, `get_risk_flags`, `run_monte_carlo`
+
+What is **skipped** (loaded directly from ZIP):
+- News fetch (13 API sources)
+- Sentiment inference (5 HuggingFace models + Groq + Gemini)
+- LSTM + Transformer training
+- 20-strategy backtest
 
 ### Tab 0 — Signal Engine
 - Large **BUY/HOLD/SELL** badge with signal color

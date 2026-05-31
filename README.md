@@ -408,7 +408,16 @@ The thesis is rendered as formatted HTML in the app and embedded in the PDF repo
 cd sentral_app && streamlit run app.py
 ```
 
-**Sidebar controls:** Ticker · Period · Forecast Days (7–120) · LSTM Lookback (20–120) · Monte Carlo N (100–5000) · ML toggle · 10 API key fields (pre-loaded from `.env`)
+**Sidebar controls:** Ticker · Period · Forecast Days (7–120) · LSTM Lookback (20–120) · Monte Carlo N (100–5000) · ML toggle · 10 API key fields (pre-loaded from `.env`) · **Upload Bundle ZIP** · **⚡ Load from Bundle**
+
+**Download buttons (above tabs after any analysis):**
+
+| Button | Output |
+|--------|--------|
+| ⬇ HTML Report | Full interactive report |
+| ⬇ PDF Report | Static PDF (`reportlab` required) |
+| ⬇ Price + Indicators CSV | OHLCV + 35 TA columns |
+| 📦 Download Full Bundle ZIP | Complete ZIP (news, sentiment, ML predictions, backtest curves, scalars) — upload back to skip 5–10 min pipeline |
 
 | Tab | Contents |
 |-----|----------|
@@ -657,7 +666,14 @@ cd screener_app && streamlit run app.py
 | **Screener** | Multi-stock screener (60 NSE stocks, 7 configurable filters), sortable results with colour gradients |
 | **Calculator** | SIP + Lump-sum comparison, 10-year projection, historical CAGR estimation |
 
-**Sidebar controls:** ticker, period, Groq API key, Gemini API key
+**Sidebar controls:** Ticker · Period · Benchmark · Groq/Gemini API keys · **Upload Bundle ZIP** · **⚡ Load from Bundle**
+
+**Download buttons (above tabs after any analysis):**
+
+| Button | Output |
+|--------|--------|
+| 📦 Download Analysis Bundle ZIP | Complete ZIP (financials, indicators, peers, holders, info scalars) — upload back to skip all re-downloading |
+| ⬇ Price + Indicators CSV | OHLCV + all technical indicator columns |
 
 ---
 

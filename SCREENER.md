@@ -241,6 +241,29 @@ Opens at `http://localhost:8501`
 | Gemini API Key | Fallback LLM for peer discovery |
 | Save keys to .env | Checkbox → Save button |
 | Analyse Stock | Trigger data load + analysis |
+| Upload Bundle ZIP | Restore a previously saved analysis bundle |
+| Load from Bundle | Skip all downloading and restore from ZIP instantly |
+
+### Download / Upload Bundle
+After any successful analysis a two-button row appears **above the tabs**:
+
+| Button | File | Contents |
+|--------|------|----------|
+| 📦 Download Analysis Bundle ZIP | `SCREENER_{TICKER}_{DATE}_bundle.zip` | `df_ta.csv`, `bench_hist.csv`, `fin.csv`, `bal.csv`, `cf.csv`, `qfin.csv`, `peers.csv`, `holders_inst.csv`, `session_data.json` |
+| ⬇ Price + Indicators CSV | `{TICKER}_indicators.csv` | OHLCV + all technical indicators |
+
+**To restore from a bundle:**
+1. In the sidebar, upload the ZIP using **Upload Bundle ZIP**.
+2. Click **⚡ Load from Bundle**.
+3. All 11 tabs populate instantly — no yfinance calls, no peer re-fetching.
+
+What is **re-computed** on load (all pure pandas/numpy, < 1 s):
+- Technical indicators (`compute_technical_indicators`) are already embedded in `df_ta.csv` — no recomputation needed.
+
+What is **skipped** (loaded directly from the ZIP):
+- yfinance financial statement downloads (`fin`, `bal`, `cf`, `qfin`)
+- Benchmark download (`bench_hist`)
+- Peer discovery (LLM or sector-database)
 
 ### Tab 0 — Overview
 - 12-metric grid: 52W High/Low, P/B, EPS, ROE, ROA, Div Yield, D/E, Beta, Fwd P/E, Book Value, Exchange
@@ -294,7 +317,7 @@ Opens at `http://localhost:8501`
 - Filter panel: P/E ≤, P/B ≤, ROE% ≥, Net Margin% ≥, D/E ≤, Mkt Cap (Cr) ≥, Rev Growth% ≥, Div Yield% ≥
 - Runs on **60 NSE stocks** across 10 sectors
 - Sortable result table with coloured gradients
-- **CSV download** button
+- **CSV download** button *(screener results only; not included in the bundle ZIP)*
 
 ### Tab 10 — Calculator
 - SIP final value + lump-sum final value
