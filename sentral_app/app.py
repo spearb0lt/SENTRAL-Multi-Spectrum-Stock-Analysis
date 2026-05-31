@@ -3,7 +3,7 @@ SENTRAL — Multi-Spectrum Stock Analysis
 Streamlit app: mirrors all functionality of SENTRAL_Complete.ipynb
 Run with: streamlit run app.py
 """
-import os, warnings, time
+import os, warnings, time, io, zipfile, json
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -33,7 +33,287 @@ from modules.signals       import compute_signal
 from modules.backtest      import run_backtest, compute_kelly
 from modules.report        import generate_html_report, generate_pdf_report
 
-# ── Page config ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+#  Bundle ZIP: save & restore full analysis sessions
+# ─────────────────────────────────────────────────────────────────────────────
+def _json_float(obj):
+    """JSON serializer that handles numpy/pandas scalar types."""
+    if isinstance(obj, (np.integer,)):             return int(obj)
+    if isinstance(obj, (np.floating, np.float_)):  return float(obj)
+    if isinstance(obj, np.ndarray):                return obj.tolist()
+    if isinstance(obj, (np.bool_,)):               return bool(obj)
+    return str(obj)
+
+
+def _build_bundle_zip() -> bytes:
+    """Package all current session analysis results into a downloadable ZIP."""
+    ss = st.session_state
+    df           = ss["df"]
+    df_news      = ss["df_news"]
+    df_sentiment = ss["df_sentiment"]
+    df_peers     = ss["df_peers"]
+    bt           = ss["bt_results"]
+    ml           = ss["ml"]
+    raw          = ss["raw"]
+    mc           = ss["mc"]
+    risk         = ss["risk"]
+
+    session_json = {
+        "ticker":           ss.get("_ticker", ""),
+        "company_name":     raw["company_name"],
+        "sector":           raw["sector"],
+        "industry":         raw["industry"],
+        "exchange":         raw["exchange"],
+        "currency":         raw.get("currency", ""),
+        "currency_sym":     raw["currency_sym"],
+        "period":           ss.get("_period", "2y"),
+        "forecast_days":    int(ss.get("_forecast_days", 30)),
+        "mc_sims":          int(mc["n_sims"]),
+        "signal":           ss["signal_data"],
+        "altman":           ss["altman"],
+        "piotroski_score":  ss["piotroski"]["score"],
+        "piotroski_signal": ss["piotroski"]["signal"],
+        "piotroski_criteria": {k: bool(v) for k, v in ss["piotroski"].get("criteria", {}).items()},
+        "dcf":              {k: v for k, v in ss["dcf"].items()},
+        "risk_scalars":     {k: v for k, v in risk.items()
+                             if not isinstance(v, (pd.Series, pd.DataFrame))},
+        "kelly":            ss["kelly"],
+        "metrics":          ss["metrics"],
+        "thesis":           ss["thesis"],
+        "ensemble_score":   float(ss["ens_score"]),
+        "ensemble_label":   ss["ens_label"],
+        "peer_method":      ss.get("peer_method", "sector-database"),
+        "auto_peers":       ss["auto_peers"],
+        "mc_summary": {
+            "p_profit": mc["p_profit"], "p_gain5": mc["p_gain5"],
+            "p_loss5":  mc["p_loss5"],  "pctiles":  mc["pctiles"],
+            "S0": mc["S0"], "mu_ann": mc["mu_ann"], "sig_ann": mc["sig_ann"],
+            "n_sims": mc["n_sims"], "days": mc["days"],
+        },
+        "ml_summary": {
+            "lstm_30d":        ml["lstm_30d"],
+            "trans_30d":       ml["trans_30d"],
+            "ensemble_30d":    ml["ensemble_30d"],
+            "forecast_return": ml["forecast_return"],
+            "current_price":   ml["current_price"],
+        } if ml else None,
+        "fund_score":  float(ss.get("fund_score", 0)),
+        "tech_score":  float(ss.get("tech_score", 0)),
+        "risk_flags":  ss.get("risk_flags", []),
+        "bt_best_name": bt["best_name"],
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("price_indicators.csv", df.to_csv())
+        if not df_news.empty:
+            zf.writestr("news_corpus.csv", df_news.to_csv(index=False))
+        if not df_sentiment.empty:
+            zf.writestr("sentiment_analysis.csv", df_sentiment.to_csv())
+        if not df_peers.empty:
+            zf.writestr("peers.csv", df_peers.to_csv())
+        zf.writestr("backtest_results.csv", bt["df_results"].to_csv())
+        cumuls_df = pd.DataFrame(bt["cumuls"], index=bt["bt_index"])
+        cumuls_df["★ Buy & Hold"] = bt["bh_cumul"].values
+        zf.writestr("backtest_cumuls.csv", cumuls_df.to_csv())
+        if ml:
+            ml_df = pd.DataFrame({
+                "date":                 [str(d) for d in ml["future_dates"]],
+                "lstm_forecast":        list(ml["lstm_future"]),
+                "transformer_forecast": list(ml["trans_future"]),
+                "ensemble_forecast":    list(ml["ensemble_future"]),
+            })
+            zf.writestr("ml_forecast.csv", ml_df.to_csv(index=False))
+            zf.writestr("ml_eval.csv",     ml["eval_df"].to_csv())
+        zf.writestr("session_data.json",
+                    json.dumps(session_json, default=_json_float, indent=2))
+    buf.seek(0)
+    return buf.read()
+
+
+def _restore_from_bundle(uploaded_file) -> bool:
+    """
+    Extract a bundle ZIP, rebuild session_state, return True on success.
+    Expensive computations (news / sentiment / ML / backtest) are loaded from
+    the ZIP.  Cheap ones (risk metrics, patterns, seasonality, Monte Carlo) are
+    re-run from the saved price_indicators.csv (~1-2 s total).
+    yfinance raw data is fetched via download_stock_data (24 h cache, fast).
+    """
+    try:
+        raw_bytes = uploaded_file.read()
+        buf = io.BytesIO(raw_bytes)
+        with zipfile.ZipFile(buf, "r") as zf:
+            names = zf.namelist()
+
+            def _rc(fname, **kw):
+                if fname not in names:
+                    return pd.DataFrame()
+                return pd.read_csv(io.BytesIO(zf.read(fname)), **kw)
+
+            # ── session_data.json ──────────────────────────────────────────
+            if "session_data.json" not in names:
+                st.error("Invalid bundle: missing session_data.json")
+                return False
+            sd = json.loads(zf.read("session_data.json").decode("utf-8"))
+
+            ticker_b        = sd["ticker"]
+            period_b        = sd["period"]
+            forecast_days_b = int(sd.get("forecast_days", 30))
+            mc_sims_b       = int(sd.get("mc_sims", 1000))
+
+            # ── price_indicators.csv ───────────────────────────────────────
+            df = _rc("price_indicators.csv", index_col=0, parse_dates=True)
+            if df.empty:
+                st.error("Invalid bundle: missing price_indicators.csv")
+                return False
+            df.index = pd.to_datetime(df.index)
+            close = df["Close"]
+
+            # ── Re-run cheap technical computations (no API calls) ─────────
+            risk        = compute_risk_metrics(df)
+            patterns    = detect_candlestick_patterns(df)
+            pat_summ    = get_pattern_summary(patterns, df)
+            seasonality = compute_seasonality(df)
+            tech_score  = float(sd.get("tech_score") or compute_technical_score(df))
+            risk_flags  = sd.get("risk_flags") or get_risk_flags(df)
+
+            # ── Monte Carlo (pure numpy, ~1 s) ─────────────────────────────
+            mc = run_monte_carlo(close, forecast_days=forecast_days_b,
+                                 n_sims=mc_sims_b)
+
+            # ── yfinance raw data (24 h @st.cache_data) ───────────────────
+            with st.spinner(f"Refreshing {ticker_b} market data (cached)…"):
+                raw = download_stock_data(ticker_b, period_b)
+
+            # ── Load saved CSVs ────────────────────────────────────────────
+            df_news      = _rc("news_corpus.csv")
+            df_sentiment = _rc("sentiment_analysis.csv", index_col=0)
+            df_peers     = _rc("peers.csv", index_col=0)
+
+            # ── Backtest results ───────────────────────────────────────────
+            df_bt  = _rc("backtest_results.csv", index_col=0)
+            cum_df = _rc("backtest_cumuls.csv",  index_col=0, parse_dates=True)
+            if not cum_df.empty:
+                cum_df.index = pd.to_datetime(cum_df.index)
+            bt_index = cum_df.index if not cum_df.empty else pd.DatetimeIndex([])
+            bh_col   = "★ Buy & Hold"
+            if not cum_df.empty and bh_col in cum_df.columns:
+                bh_cumul = cum_df.pop(bh_col)
+            else:
+                bh_cumul = pd.Series(dtype=float)
+            cumuls = {c: cum_df[c] for c in cum_df.columns} if not cum_df.empty else {}
+            bt_results = {
+                "df_results": df_bt,
+                "cumuls":     cumuls,
+                "bh_cumul":   bh_cumul,
+                "bt_index":   bt_index,
+                "best_name":  sd.get("bt_best_name", ""),
+                "best_rets":  pd.Series(dtype=float),
+            }
+
+            # ── ML forecast ───────────────────────────────────────────────
+            ml = None
+            if "ml_forecast.csv" in names:
+                ml_df   = _rc("ml_forecast.csv")
+                ml_eval = _rc("ml_eval.csv", index_col=0)
+                mls     = sd.get("ml_summary") or {}
+                if mls and not ml_df.empty:
+                    fallback_eval = pd.DataFrame(
+                        {"RMSE": [0, 0], "MAPE %": ["N/A", "N/A"]},
+                        index=pd.Index(["LSTM", "Transformer"], name="Model"))
+                    ml = {
+                        "lstm_future":     ml_df["lstm_forecast"].to_numpy(),
+                        "trans_future":    ml_df["transformer_forecast"].to_numpy(),
+                        "ensemble_future": ml_df["ensemble_forecast"].to_numpy(),
+                        "future_dates":    pd.to_datetime(ml_df["date"]),
+                        "lstm_30d":        float(mls.get("lstm_30d", 0)),
+                        "trans_30d":       float(mls.get("trans_30d", 0)),
+                        "ensemble_30d":    float(mls.get("ensemble_30d", 0)),
+                        "forecast_return": float(mls.get("forecast_return", 0.0)),
+                        "current_price":   float(mls.get("current_price",
+                                                          float(close.iloc[-1]))),
+                        "eval_df":         ml_eval if not ml_eval.empty else fallback_eval,
+                        "lstm_preds":  np.array([]), "trans_preds": np.array([]),
+                        "actuals":     np.array([]), "test_dates":  pd.DatetimeIndex([]),
+                        "lstm_model": None, "trans_model": None,
+                        "scaler_close": None, "scaler_feat": None,
+                    }
+
+            # ── Reconstruct piotroski dict ─────────────────────────────────
+            piotroski = {
+                "score":    sd.get("piotroski_score", 0),
+                "signal":   sd.get("piotroski_signal", ""),
+                "criteria": sd.get("piotroski_criteria", {}),
+            }
+
+            # ── Rebuild all_results for reports ───────────────────────────
+            all_results = {
+                "ticker":       ticker_b,
+                "company_name": sd["company_name"],
+                "currency_sym": sd["currency_sym"],
+                "info":         raw["info"],
+                "signal":       sd["signal"],
+                "dcf":          sd["dcf"],
+                "altman":       sd["altman"],
+                "piotroski":    piotroski,
+                "risk":         risk,
+                "sentiment_df": df_sentiment,
+                "thesis":       sd.get("thesis", ""),
+                "news_items":   df_news.to_dict("records") if not df_news.empty else [],
+                "backtest":     bt_results,
+            }
+            with st.spinner("Regenerating reports…"):
+                html_report = generate_html_report(all_results)
+                pdf_report  = generate_pdf_report(all_results)
+
+        # ── Populate session_state ─────────────────────────────────────────
+        st.session_state.clear()
+        ss = st.session_state
+        ss["raw"]            = raw
+        ss["df"]             = df
+        ss["metrics"]        = sd.get("metrics", {})
+        ss["altman"]         = sd["altman"]
+        ss["piotroski"]      = piotroski
+        ss["dcf"]            = sd["dcf"]
+        ss["fund_score"]     = float(sd.get("fund_score", 0))
+        ss["risk"]           = risk
+        ss["patterns"]       = patterns
+        ss["pat_summ"]       = pat_summ
+        ss["seasonality"]    = seasonality
+        ss["tech_score"]     = tech_score
+        ss["risk_flags"]     = risk_flags
+        ss["auto_peers"]     = sd.get("auto_peers", [])
+        ss["df_peers"]       = df_peers
+        ss["peer_method"]    = sd.get("peer_method", "sector-database")
+        ss["news_items"]     = df_news.to_dict("records") if not df_news.empty else []
+        ss["df_news"]        = df_news
+        ss["sent_results"]   = {}
+        ss["df_sentiment"]   = df_sentiment
+        ss["ens_score"]      = float(sd.get("ensemble_score", 0.0))
+        ss["ens_label"]      = sd.get("ensemble_label", "Neutral")
+        ss["thesis"]         = sd.get("thesis", "No thesis available.")
+        ss["ml"]             = ml
+        ss["forecast_return"] = float((sd.get("ml_summary") or {}).get("forecast_return", 0.0))
+        ss["mc"]             = mc
+        ss["signal_data"]    = sd["signal"]
+        ss["bt_results"]     = bt_results
+        ss["kelly"]          = sd.get("kelly", {})
+        ss["html_report"]    = html_report
+        ss["pdf_report"]     = pdf_report
+        ss["all_results"]    = all_results
+        ss["_ticker"]        = ticker_b
+        ss["_period"]        = period_b
+        ss["_forecast_days"] = forecast_days_b
+        ss["loaded_ticker"]  = ticker_b
+        ss["completed"]      = True
+        return True
+
+    except Exception as exc:
+        st.error(f"Failed to load bundle: {exc}")
+        st.exception(exc)
+        return False
+
+
 st.set_page_config(
     page_title="SENTRAL Stock Analyser",
     page_icon="📊",
@@ -120,6 +400,16 @@ with st.sidebar:
     st.divider()
     run_btn = st.button("🚀 Run Full Analysis", use_container_width=True)
 
+    st.divider()
+    st.subheader("📂 Load Previous Analysis")
+    st.caption("Upload a SENTRAL bundle ZIP to instantly reload a completed analysis — "
+               "skipping news scraping, sentiment models, ML training, and backtesting.")
+    uploaded_bundle = st.file_uploader("Upload Bundle ZIP", type=["zip"],
+                                        label_visibility="collapsed",
+                                        key="bundle_uploader")
+    load_btn = st.button("⚡ Load from Bundle", use_container_width=True,
+                          disabled=(uploaded_bundle is None))
+
 
 api_keys = {
     "ALPHA_VANTAGE": alpha_key, "FINNHUB": finnhub_key,
@@ -135,8 +425,9 @@ api_keys = {
 st.title("📊 SENTRAL — Multi-Spectrum Stock Analysis")
 st.caption("Fundamental · Technical · Sentiment · ML Forecast · Backtesting")
 
-if not run_btn and "results" not in st.session_state:
-    st.info("Enter a ticker and click **Run Full Analysis** to begin.")
+if not run_btn and not (load_btn and uploaded_bundle) and not st.session_state.get("completed"):
+    st.info("Enter a ticker and click **🚀 Run Full Analysis** to begin.  \n"
+            "Or upload a previous SENTRAL bundle ZIP in the sidebar to reload instantly.")
     st.stop()
 
 
@@ -164,6 +455,9 @@ if run_btn:
         cur_sym          = raw["currency_sym"]
         st.session_state["raw"] = raw
         st.session_state["df"]  = df
+        st.session_state["_ticker"]       = ticker.strip().upper()
+        st.session_state["_period"]       = period
+        st.session_state["_forecast_days"] = forecast_days
 
         upd(8, "📐 Computing fundamental metrics…")
         # ── 2. Fundamental ────────────────────────────────────────────────────
@@ -320,8 +614,13 @@ if run_btn:
         st.exception(e)
         st.stop()
 
+# ── Handle bundle upload ───────────────────────────────────────────────────────
+if load_btn and uploaded_bundle is not None and not run_btn:
+    ok = _restore_from_bundle(uploaded_bundle)
+    if ok:
+        st.rerun()
+    st.stop()
 
-# ═══════════════════════════════════════════════════════════════════════════════
 #  RESULTS DISPLAY
 # ═══════════════════════════════════════════════════════════════════════════════
 if not st.session_state.get("completed"):
@@ -360,7 +659,9 @@ peer_method  = st.session_state.get("peer_method", "sector-database")
 risk_flags   = st.session_state["risk_flags"]
 
 close = df["Close"]
-ticker_disp = ticker.strip().upper()
+# Use ticker from the loaded bundle when available (overrides sidebar widget)
+ticker_disp = st.session_state.get("loaded_ticker", ticker.strip().upper())
+_ts = pd.Timestamp.now().strftime('%Y%m%d')
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 signal     = signal_data["signal"]
@@ -385,23 +686,34 @@ with col3:
 st.divider()
 
 # ── Download Buttons ──────────────────────────────────────────────────────────
-dc1, dc2, dc3 = st.columns(3)
+dc1, dc2, dc3, dc4 = st.columns(4)
 with dc1:
-    st.download_button("⬇ Download HTML Report", html_report,
-                        file_name=f"SENTRAL_{ticker_disp}_{pd.Timestamp.now().strftime('%Y%m%d')}.html",
+    st.download_button("⬇ HTML Report", html_report,
+                        file_name=f"SENTRAL_{ticker_disp}_{_ts}.html",
                         mime="text/html", use_container_width=True)
 with dc2:
     if pdf_report:
-        st.download_button("⬇ Download PDF Report", pdf_report,
-                            file_name=f"SENTRAL_{ticker_disp}_{pd.Timestamp.now().strftime('%Y%m%d')}.pdf",
+        st.download_button("⬇ PDF Report", pdf_report,
+                            file_name=f"SENTRAL_{ticker_disp}_{_ts}.pdf",
                             mime="application/pdf", use_container_width=True)
     else:
-        st.info("PDF: install `reportlab` (`pip install reportlab`)")
+        st.info("PDF: install `reportlab`")
 with dc3:
     csv_data = df.to_csv().encode()
-    st.download_button("⬇ Download Price + Indicators CSV", csv_data,
+    st.download_button("⬇ Price + Indicators CSV", csv_data,
                         file_name=f"{ticker_disp}_indicators.csv",
                         mime="text/csv", use_container_width=True)
+with dc4:
+    bundle_bytes = _build_bundle_zip()
+    st.download_button(
+        "📦 Download Full Bundle ZIP",
+        bundle_bytes,
+        file_name=f"SENTRAL_{ticker_disp}_{_ts}_bundle.zip",
+        mime="application/zip",
+        use_container_width=True,
+        help="ZIP with news, sentiment, ML forecasts, backtest curves + all data. "
+             "Upload back via the sidebar to skip reprocessing.",
+    )
 
 st.divider()
 
