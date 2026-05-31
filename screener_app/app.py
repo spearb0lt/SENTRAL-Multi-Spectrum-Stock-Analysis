@@ -4,7 +4,7 @@ Streamlit app inspired by screener.in × groww.in
 """
 import warnings; warnings.filterwarnings("ignore")
 
-import os
+import os, io, zipfile, json, math
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,6 +20,168 @@ from modules.fundamentals  import (build_pl_table, build_balance_sheet, build_ca
                                     compute_altman_z, compute_dcf, compute_graham_number)
 from modules.peers         import get_peer_data
 from modules.screener      import DEFAULT_UNIVERSE, fetch_screener_data, apply_filters
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Bundle helpers — save / restore full analysis as a ZIP file
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _info_json_safe(info: dict) -> dict:
+    """Return a copy of the yfinance info dict filtered to JSON-serialisable primitives."""
+    out: dict = {}
+    for k, v in info.items():
+        if v is None:
+            out[k] = None
+        elif isinstance(v, bool):
+            out[k] = v
+        elif isinstance(v, int):
+            out[k] = v
+        elif isinstance(v, float):
+            out[k] = None if (math.isnan(v) or math.isinf(v)) else v
+        elif isinstance(v, str):
+            out[k] = v
+        else:
+            try:
+                if isinstance(v, np.integer):
+                    out[k] = int(v)
+                elif isinstance(v, np.floating):
+                    out[k] = None if (np.isnan(v) or np.isinf(v)) else float(v)
+                elif isinstance(v, np.bool_):
+                    out[k] = bool(v)
+                # lists, dicts, and other complex types are intentionally skipped
+            except Exception:
+                pass
+    return out
+
+
+def _build_screener_bundle() -> bytes:
+    """Serialise all screener analysis results to an in-memory ZIP bundle."""
+    raw         = st.session_state.get("raw", {})
+    df_ta       = st.session_state.get("df_ta", pd.DataFrame())
+    bench_hist  = st.session_state.get("bench_hist", pd.DataFrame())
+    peer_df     = st.session_state.get("peer_df", pd.DataFrame())
+    peer_list   = st.session_state.get("peer_list", [])
+    peer_method = st.session_state.get("peer_method", "")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        if not df_ta.empty:
+            zf.writestr("df_ta.csv", df_ta.to_csv())
+        if not bench_hist.empty:
+            zf.writestr("bench_hist.csv", bench_hist.to_csv())
+        for key, fname in [("fin", "fin.csv"), ("bal", "bal.csv"),
+                            ("cf", "cf.csv"),  ("qfin", "qfin.csv")]:
+            df_ = raw.get(key, pd.DataFrame())
+            if df_ is not None and not df_.empty:
+                zf.writestr(fname, df_.to_csv())
+        if not peer_df.empty:
+            zf.writestr("peers.csv", peer_df.to_csv())
+        holders = raw.get("holders_inst")
+        if holders is not None and not holders.empty:
+            zf.writestr("holders_inst.csv", holders.to_csv(index=False))
+        info_safe = _info_json_safe(raw.get("info") or {})
+        meta = {
+            "ticker":       st.session_state.get("_screener_ticker", ""),
+            "period":       st.session_state.get("_screener_period", "5y"),
+            "bench":        st.session_state.get("_screener_bench",  "^NSEI"),
+            "company_name": raw.get("company_name", ""),
+            "sector":       raw.get("sector", ""),
+            "industry":     raw.get("industry", ""),
+            "exchange":     raw.get("exchange", ""),
+            "currency":     raw.get("currency", "INR"),
+            "currency_sym": raw.get("currency_sym", "₹"),
+            "peer_list":    peer_list,
+            "peer_method":  peer_method,
+        }
+        zf.writestr("session_data.json",
+                    json.dumps({"info": info_safe, "meta": meta}))
+    buf.seek(0)
+    return buf.read()
+
+
+def _restore_screener_bundle(uploaded_file) -> bool:
+    """Restore all screener analysis results from a bundle ZIP into session_state."""
+    try:
+        with st.spinner("⚡ Loading analysis bundle…"):
+            raw_bytes = uploaded_file.read()
+            buf = io.BytesIO(raw_bytes)
+            with zipfile.ZipFile(buf, "r") as zf:
+                names = set(zf.namelist())
+                payload = json.loads(zf.read("session_data.json").decode("utf-8"))
+                info    = payload["info"]
+                meta    = payload["meta"]
+
+                def _load_df_csv(fname: str, parse_dates: bool = True) -> pd.DataFrame:
+                    if fname not in names:
+                        return pd.DataFrame()
+                    try:
+                        df_ = pd.read_csv(
+                            io.BytesIO(zf.read(fname)),
+                            index_col=0,
+                        )
+                        if parse_dates:
+                            df_.index = pd.to_datetime(df_.index, errors="coerce")
+                        return df_
+                    except Exception:
+                        return pd.DataFrame()
+
+                df_ta      = _load_df_csv("df_ta.csv")
+                bench_hist = _load_df_csv("bench_hist.csv")
+                fin        = _load_df_csv("fin.csv")
+                bal        = _load_df_csv("bal.csv")
+                cf_df      = _load_df_csv("cf.csv")
+                qfin       = _load_df_csv("qfin.csv")
+                peer_df    = _load_df_csv("peers.csv", parse_dates=False)
+                if "holders_inst.csv" in names:
+                    try:
+                        holders_inst = pd.read_csv(
+                            io.BytesIO(zf.read("holders_inst.csv")))
+                    except Exception:
+                        holders_inst = pd.DataFrame()
+                else:
+                    holders_inst = pd.DataFrame()
+
+                # Reconstruct hist from df_ta OHLCV columns
+                hist_cols = [c for c in ["Open", "High", "Low", "Close", "Volume",
+                                         "Dividends", "Stock Splits"]
+                             if c in df_ta.columns]
+                hist = df_ta[hist_cols].copy() if hist_cols else df_ta.iloc[:, :5].copy()
+
+                raw = {
+                    "info":          info,
+                    "hist":          hist,
+                    "fin":           fin,
+                    "bal":           bal,
+                    "cf":            cf_df,
+                    "qfin":          qfin,
+                    "qbal":          pd.DataFrame(),
+                    "qcf":           pd.DataFrame(),
+                    "actions":       pd.DataFrame(),
+                    "holders_inst":  holders_inst,
+                    "holders_major": pd.DataFrame(),
+                    "calendar":      None,
+                    "company_name":  meta.get("company_name", ""),
+                    "sector":        meta.get("sector", ""),
+                    "industry":      meta.get("industry", ""),
+                    "exchange":      meta.get("exchange", ""),
+                    "currency":      meta.get("currency", "INR"),
+                    "currency_sym":  meta.get("currency_sym", "₹"),
+                }
+                st.session_state["raw"]                    = raw
+                st.session_state["df_ta"]                  = df_ta
+                st.session_state["bench_hist"]             = bench_hist
+                st.session_state["peer_df"]                = peer_df
+                st.session_state["peer_list"]              = meta.get("peer_list", [])
+                st.session_state["peer_method"]            = meta.get("peer_method", "bundle")
+                st.session_state["_screener_ticker"]       = meta.get("ticker", "")
+                st.session_state["_screener_period"]       = meta.get("period", "5y")
+                st.session_state["_screener_bench"]        = meta.get("bench",  "^NSEI")
+                st.session_state["loaded_screener_ticker"] = meta.get("ticker", "")
+                st.session_state["_screener_loaded"]       = True
+                return True
+    except Exception as e:
+        st.error(f"❌ Failed to load bundle: {e}")
+        return False
+
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -70,14 +232,34 @@ with st.sidebar:
     st.divider()
     run_btn = st.button("🔍 Analyse Stock", use_container_width=True, type="primary")
     st.divider()
+    st.subheader("📂 Load Previous Analysis")
+    st.caption("Upload a bundle ZIP to restore results instantly — no re-downloading")
+    uploaded_bundle = st.file_uploader(
+        "Upload Bundle ZIP", type=["zip"], key="screener_bundle_uploader"
+    )
+    load_btn = st.button(
+        "⚡ Load from Bundle",
+        use_container_width=True,
+        disabled=uploaded_bundle is None,
+        key="screener_load_btn",
+    )
+    st.divider()
     st.caption("ℹ️ Data from Yahoo Finance via yfinance")
 
 # ── Title ─────────────────────────────────────────────────────────────────────
 st.title("🔍 SCREENER — Deep Fundamental + Technical Analysis")
 st.caption("Inspired by screener.in × groww.in  ·  All data via yfinance")
 
+# ── Bundle load trigger (runs before early-stop so it works on first visit too) ──
+if load_btn and uploaded_bundle is not None and not run_btn:
+    ok = _restore_screener_bundle(uploaded_bundle)
+    if ok:
+        st.rerun()
+    st.stop()
+
 if not run_btn and "raw" not in st.session_state:
-    st.info("Enter a ticker symbol and click **Analyse Stock** to begin.")
+    st.info("Enter a ticker symbol and click **Analyse Stock** to begin, "
+            "or upload a bundle ZIP via the sidebar.")
     st.stop()
 
 # ── Data load (on button press) ───────────────────────────────────────────────
@@ -85,14 +267,20 @@ if run_btn:
     st.session_state.clear()
 
 ticker_key = ticker.strip().upper()
+# Override with bundle ticker when analysis was restored from a ZIP
+if st.session_state.get("_screener_loaded"):
+    ticker_key = st.session_state.get("loaded_screener_ticker", ticker_key)
 
 if run_btn or "raw" not in st.session_state:
     with st.spinner("⬇️  Downloading data…"):
         raw = download_full_data(ticker_key, period)
-        st.session_state["raw"]   = raw
-        st.session_state["df_ta"] = compute_technical_indicators(raw["hist"])
+        st.session_state["raw"]               = raw
+        st.session_state["df_ta"]             = compute_technical_indicators(raw["hist"])
         bench_hist = download_benchmark(bench, period)
-        st.session_state["bench_hist"] = bench_hist
+        st.session_state["bench_hist"]        = bench_hist
+        st.session_state["_screener_ticker"]  = ticker_key
+        st.session_state["_screener_period"]  = period
+        st.session_state["_screener_bench"]   = bench
 
 raw       = st.session_state["raw"]
 df_ta     = st.session_state["df_ta"]
@@ -124,6 +312,29 @@ with c3:
 with c4:
     pe = info.get("trailingPE")
     st.metric("P/E", f"{pe:.1f}" if pe else "N/A")
+
+# ── Download buttons ─────────────────────────────────────────────────────────
+_ts = pd.Timestamp.now().strftime('%Y%m%d')
+dbc1, dbc2 = st.columns(2)
+with dbc1:
+    bundle_bytes = _build_screener_bundle()
+    st.download_button(
+        "📦 Download Analysis Bundle ZIP",
+        bundle_bytes,
+        file_name=f"SCREENER_{ticker_key}_{_ts}_bundle.zip",
+        mime="application/zip",
+        use_container_width=True,
+        help="Save bundle to reload later — peers, financials, indicators all included.",
+    )
+with dbc2:
+    csv_bytes = df_ta.to_csv().encode()
+    st.download_button(
+        "⬇ Price + Indicators CSV",
+        csv_bytes,
+        file_name=f"{ticker_key}_indicators.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
 
 st.divider()
 
